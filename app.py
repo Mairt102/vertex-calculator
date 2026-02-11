@@ -141,4 +141,3 @@ with col_header2:
 st.sidebar.header("Project Settings")
 project_name = st.sidebar.text_input("Project Name", "Daisy Lodge")
 st.sidebar.subheader("Environment")
-t
