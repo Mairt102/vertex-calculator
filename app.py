@@ -40,6 +40,7 @@ def generate_pdf(project_name, u_val, risk, layers_data):
 
     # Data Table
     # Convert list of dicts to list of lists for ReportLab
+    # We list layers Top (Outside) -> Bottom (Inside) to match user input
     table_data = [["Layer Name", "Thickness (mm)", "Lambda (W/mK)", "Mu Value"]]
     for layer in layers_data:
         table_data.append([
@@ -140,67 +141,4 @@ with col_header2:
 st.sidebar.header("Project Settings")
 project_name = st.sidebar.text_input("Project Name", "Daisy Lodge")
 st.sidebar.subheader("Environment")
-t_in = st.sidebar.number_input("Inside Temp (°C)", 20.0)
-rh_in = st.sidebar.number_input("Inside RH (%)", 66.2)
-t_out = st.sidebar.number_input("Outside Temp (°C)", -2.2)
-rh_out = st.sidebar.number_input("Outside RH (%)", 92.0)
-
-# Layers Logic
-if 'layers' not in st.session_state:
-    st.session_state.layers = [{'name': 'CLT Panel', 'thick': 160}, {'name': 'Kingspan TR26', 'thick': 30}]
-
-def add_layer(): st.session_state.layers.append({'name': 'Warmdex Insulation', 'thick': 100})
-def remove_layer(): 
-    if len(st.session_state.layers) > 0: st.session_state.layers.pop()
-
-c1, c2 = st.columns([1, 5])
-c1.button("➕ Add Layer", on_click=add_layer)
-c2.button("➖ Remove Layer", on_click=remove_layer)
-
-st.write("---")
-
-calc_layers = []
-for i, layer in enumerate(st.session_state.layers):
-    c1, c2 = st.columns([3, 1])
-    with c1:
-        idx = df_materials[df_materials['Name'] == layer['name']].index[0] if layer['name'] in df_materials['Name'].values else 0
-        new_name = st.selectbox(f"Layer {i+1}", df_materials['Name'], index=int(idx), key=f"mat_{i}")
-    with c2:
-        new_thick = st.number_input(f"Thickness (mm)", value=int(layer['thick']), key=f"th_{i}")
-    
-    props = df_materials[df_materials['Name'] == new_name].iloc[0]
-    calc_layers.append({'name': new_name, 'thickness': new_thick, 'lambda': props['Lambda'], 'mu': props['Mu'], 'r_vap': props['R_Vap']})
-
-st.write("---")
-
-# --- 6. RUN & EXPORT ---
-if st.button("RUN CALCULATIONS", type="primary", use_container_width=True):
-    points, risk, u_val = run_condensation_analysis(calc_layers, t_in, rh_in, t_out, rh_out)
-    
-    # Display Metrics
-    m1, m2, m3 = st.columns(3)
-    m1.metric("U-Value", f"{u_val:.3f} W/m²K")
-    m2.metric("Condensation Risk", "DETECTED" if risk else "NONE", delta_color="inverse" if risk else "normal")
-    m3.metric("Project", project_name)
-    
-    # Display Graph
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(points['x'], points['temp'], label="Temperature", color="blue", linewidth=2)
-    ax.plot(points['x'], points['dew'], label="Dew Point", color="red", linestyle="--", linewidth=2)
-    if risk:
-        ax.fill_between(points['x'], points['temp'], points['dew'], where=(np.array(points['dew']) > np.array(points['temp'])), color='red', alpha=0.3)
-    ax.set_xlabel("Depth (mm)")
-    ax.set_ylabel("Temp (°C)")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    st.pyplot(fig)
-
-    # GENERATE PDF BUTTON (Only appears after calculation)
-    pdf_buffer = generate_pdf(project_name, u_val, risk, calc_layers)
-    
-    st.download_button(
-        label="📄 Download Official PDF Report",
-        data=pdf_buffer,
-        file_name=f"{project_name}_Report.pdf",
-        mime="application/pdf"
-    )
+t
