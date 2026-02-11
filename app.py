@@ -147,9 +147,9 @@ rh_out = st.sidebar.number_input("Outside RH (%)", 92.0)
 
 # Layers Logic - Default is now TOP DOWN (Aluminium first)
 if 'layers' not in st.session_state:
-    st.session_state.layers = [{'name': 'Aluminium', 'thick': 1}, {'name': 'Kingspan TR26', 'thick': 100}, {'name': 'CLT Panel', 'thick': 160}]
+    st.session_state.layers = [{'name': 'Aluminium', 'thick': 1.0}, {'name': 'Kingspan TR26', 'thick': 100.0}, {'name': 'CLT Panel', 'thick': 160.0}]
 
-def add_layer(): st.session_state.layers.append({'name': 'Siga Wetguard', 'thick': 1})
+def add_layer(): st.session_state.layers.append({'name': 'Siga Wetguard', 'thick': 0.6})
 def remove_layer(): 
     if len(st.session_state.layers) > 0: st.session_state.layers.pop()
 
@@ -164,15 +164,21 @@ calc_layers = []
 for i, layer in enumerate(st.session_state.layers):
     c1, c2 = st.columns([3, 1])
     with c1:
-        # Safety check if material exists in DB
         if layer['name'] in df_materials['Name'].values:
             idx = df_materials[df_materials['Name'] == layer['name']].index[0]
         else:
             idx = 0
-            
         new_name = st.selectbox(f"Layer {i+1}", df_materials['Name'], index=int(idx), key=f"mat_{i}")
     with c2:
-        new_thick = st.number_input(f"Thickness (mm)", value=int(layer['thick']), key=f"th_{i}")
+        # CHANGED: Use float() instead of int() and added format="%.1f" to allow decimals like 0.6
+        new_thick = st.number_input(
+            f"Thickness (mm)", 
+            value=float(layer['thick']), 
+            min_value=0.0, 
+            step=0.1, 
+            format="%.1f", 
+            key=f"th_{i}"
+        )
     
     props = df_materials[df_materials['Name'] == new_name].iloc[0]
     calc_layers.append({'name': new_name, 'thickness': new_thick, 'lambda': props['Lambda'], 'mu': props['Mu'], 'r_vap': props['R_Vap']})
