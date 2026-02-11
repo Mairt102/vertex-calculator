@@ -1,0 +1,11 @@
+Name,Lambda,Mu,R_Vap,Type
+Kingspan TR26,0.022,,100,Insulation
+Warmdex Insulation,0.022,,45,Insulation
+CLT Panel,0.130,50,,Structure
+Siga Wetguard,0.003,,15,Membrane
+Warmdex Vapour Barrier,0.003,,4500,Membrane
+Plywood / OSB,0.130,200,,Structure
+Plasterboard,0.210,10,,Finish
+Mineral Wool,0.038,1,,Insulation
+Air Layer (Unvented),0.025,1,,Air
+Aluminium,160.0,1000000,,Metal
