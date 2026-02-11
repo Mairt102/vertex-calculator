@@ -15,7 +15,6 @@ from reportlab.lib.pagesizes import A4
 st.set_page_config(page_title="Vertex Roofing Calculator", layout="wide")
 
 # --- CLIMATE DATA (From Kingspan Report) ---
-# Monthly averages for Galway (or generic worst case)
 CLIMATE_DATA = {
     "Galway (ISO 13788)": {
         "months": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
@@ -61,7 +60,7 @@ def generate_pdf(project_name, u_val, risk_result, layers_data, monthly_results=
             layer['name'], 
             str(layer['thickness']), 
             str(layer['lambda']), 
-            str(layer['mu']) if not np.isnan(layer['mu']) else "-"
+            str(layer['mu']) if pd.notna(layer['mu']) else "-"
         ])
 
     t = Table(table_data)
@@ -75,7 +74,7 @@ def generate_pdf(project_name, u_val, risk_result, layers_data, monthly_results=
     ]))
     elements.append(t)
     
-    # Monthly Breakdown (If available)
+    # Monthly Breakdown
     if monthly_results:
         elements.append(PageBreak())
         elements.append(Paragraph("<b>12-Month Condensation Analysis (Glaser Method)</b>", styles["Heading2"]))
@@ -97,17 +96,22 @@ def generate_pdf(project_name, u_val, risk_result, layers_data, monthly_results=
     buffer.seek(0)
     return buffer
 
-# --- 3. LOAD DATABASE ---
+# --- 3. LOAD DATABASE (ROBUST VERSION) ---
 @st.cache_data
 def load_data():
     try:
-        return pd.read_csv("materials.csv")
-    except:
+        df = pd.read_csv("materials.csv")
+        # Ensure numeric columns are actually numbers (convert errors/blanks to NaN)
+        df['Lambda'] = pd.to_numeric(df['Lambda'], errors='coerce')
+        df['Mu'] = pd.to_numeric(df['Mu'], errors='coerce')
+        df['R_Vap'] = pd.to_numeric(df['R_Vap'], errors='coerce')
+        return df
+    except Exception as e:
+        st.error(f"Error loading CSV: {e}")
         return None
 
 df_materials = load_data()
 if df_materials is None:
-    st.error("Error: materials.csv not found. Please upload it to GitHub.")
     st.stop()
 
 # --- 4. PHYSICS ENGINE ---
@@ -116,7 +120,6 @@ def calculate_dewpoint(vp):
     return (237.7 * math.log(vp/610.5)) / (17.27 - math.log(vp/610.5))
 
 def run_single_glaser(layers, t_in, rh_in, t_out, rh_out):
-    # Calculates the profile for ONE specific moment/month
     psat_in = 610.5 * math.exp((17.27 * t_in) / (237.7 + t_in))
     pv_in = psat_in * (rh_in / 100)
     psat_out = 610.5 * math.exp((17.27 * t_out) / (237.7 + t_out))
@@ -128,11 +131,23 @@ def run_single_glaser(layers, t_in, rh_in, t_out, rh_out):
     
     for layer in layers:
         thick_m = layer['thickness'] / 1000
-        r = thick_m / layer['lambda'] if layer['lambda'] > 0 else 0
-        if not np.isnan(layer['r_vap']): 
-            rv = layer['r_vap'] 
+        
+        # Safe Lambda
+        lam = layer['lambda']
+        if pd.isna(lam) or lam <= 0: lam = 999 # Avoid division by zero
+        r = thick_m / lam
+        
+        # Safe Vapour Resistance (Logic: Try R_Vap first, then Mu, then Default)
+        r_vap_val = layer['r_vap']
+        mu_val = layer['mu']
+        
+        if pd.notna(r_vap_val):
+            rv = float(r_vap_val) # Use specific resistance if exists
+        elif pd.notna(mu_val):
+            rv = float(mu_val) * thick_m * 5 # Use Mu if exists
         else:
-            rv = layer['mu'] * thick_m * 5 
+            rv = 1.0 * thick_m * 5 # Fallback: Assume Mu=1 (Air) to prevent crash
+            
         total_r += r
         total_rv += rv
         processed.append({'r': r, 'rv': rv, 'thick': layer['thickness'], 'name': layer['name']})
@@ -207,7 +222,10 @@ calc_layers = []
 for i, layer in enumerate(st.session_state.layers):
     c1, c2 = st.columns([3, 1])
     with c1:
-        idx = df_materials[df_materials['Name'] == layer['name']].index[0] if layer['name'] in df_materials['Name'].values else 0
+        if layer['name'] in df_materials['Name'].values:
+            idx = df_materials[df_materials['Name'] == layer['name']].index[0]
+        else:
+            idx = 0
         new_name = st.selectbox(f"Layer {i+1}", df_materials['Name'], index=int(idx), key=f"mat_{i}")
     with c2:
         new_thick = st.number_input(f"Thickness (mm)", value=float(layer['thick']), min_value=0.0, step=0.1, format="%.1f", key=f"th_{i}")
@@ -220,8 +238,7 @@ st.write("---")
 # --- 6. RUN & EXPORT ---
 if st.button("RUN CALCULATIONS", type="primary", use_container_width=True):
     
-    # 1. U-Value (Standard check, uses simplified logic)
-    # We run one snapshot just to get the U-value for the report
+    # 1. U-Value (Standard check)
     _, _, u_val = run_single_glaser(calc_layers[::-1], 20, 50, 0, 80)
     
     final_risk_msg = "NONE (Safe)"
@@ -230,7 +247,6 @@ if st.button("RUN CALCULATIONS", type="primary", use_container_width=True):
 
     # 2. RUN ANALYSIS BASED ON MODE
     if calc_mode == "Manual Input":
-        # Run once
         points, risk, _ = run_single_glaser(calc_layers[::-1], t_in, rh_in, t_out, rh_out)
         graph_data = points
         if risk: final_risk_msg = "FAIL (Risk Detected)"
@@ -240,7 +256,7 @@ if st.button("RUN CALCULATIONS", type="primary", use_container_width=True):
         months = CLIMATE_DATA["Galway (ISO 13788)"]
         risky_months = []
         worst_points = None
-        max_overlap = 0 # To track which month looks "worst" on the graph
+        max_overlap = 0 
         
         for i in range(12):
             m_name = months["months"][i]
@@ -252,28 +268,28 @@ if st.button("RUN CALCULATIONS", type="primary", use_container_width=True):
             pts, is_risk, _ = run_single_glaser(calc_layers[::-1], ti, rhi, to, rho)
             monthly_report.append({'month': m_name, 'risk': is_risk, 't_out': to, 'rh_out': rho})
             
-            # Check overlap area to find "worst visual" month for plotting
-            # Simple heuristic: sum of dew point exceedance
+            # Track worst visual month
             overlap_score = np.sum(np.maximum(0, np.array(pts['dew']) - np.array(pts['temp'])))
             
             if overlap_score >= max_overlap:
                 max_overlap = overlap_score
                 worst_points = pts
                 worst_month_name = m_name
+                if worst_points is None: worst_points = pts # Ensure we always have data
             
             if is_risk:
                 risky_months.append(m_name)
         
-        # Logic: If risky months exist, is it acceptable? 
-        # For this tool, if ANY condensation occurs, we flag it.
+        if worst_points is None: worst_points = pts # Fallback
+
         if len(risky_months) > 0:
             final_risk_msg = f"FAIL (Risk in {', '.join(risky_months)})"
-            graph_data = worst_points # Plot the worst month
+            graph_data = worst_points
             st.warning(f"⚠️ Condensation Risk detected during: {', '.join(risky_months)}")
             st.write(f"Graph shows worst case month: **{worst_month_name}**")
         else:
             final_risk_msg = "NONE (Safe Year-Round)"
-            graph_data = worst_points # Plot whatever month was closest (usually Jan)
+            graph_data = worst_points
             st.success("✅ Analysis Complete: No condensation risk detected in any month.")
 
     # 3. DISPLAY METRICS & GRAPH
@@ -287,7 +303,6 @@ if st.button("RUN CALCULATIONS", type="primary", use_container_width=True):
         ax.plot(graph_data['x'], graph_data['temp'], label="Temperature", color="blue", linewidth=2)
         ax.plot(graph_data['x'], graph_data['dew'], label="Dew Point", color="red", linestyle="--", linewidth=2)
         
-        # Fill risk
         ax.fill_between(graph_data['x'], graph_data['temp'], graph_data['dew'], 
                         where=(np.array(graph_data['dew']) > np.array(graph_data['temp'])), 
                         color='red', alpha=0.3, label='Condensation Zone')
