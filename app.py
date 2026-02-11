@@ -4,6 +4,45 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import utils
+from reportlab.platypus import Image
+from reportlab.lib.units import inch
+from io import BytesIO
+
+
+def generate_pdf(u_value, condensation_result, layers_df):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer)
+    elements = []
+
+    styles = getSampleStyleSheet()
+
+    elements.append(Paragraph("Vertex Roofing Systems", styles["Title"]))
+    elements.append(Spacer(1, 12))
+
+    elements.append(Paragraph(f"U-Value: {u_value:.3f} W/m²K", styles["Normal"]))
+    elements.append(Spacer(1, 12))
+
+    elements.append(Paragraph(f"Condensation Risk: {condensation_result}", styles["Normal"]))
+    elements.append(Spacer(1, 12))
+
+    data = [layers_df.columns.tolist()] + layers_df.values.tolist()
+    table = Table(data)
+    table.setStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.grey),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.black)
+    ])
+    elements.append(table)
+
+    doc.build(elements)
+    buffer.seek(0)
+
+    return buffer
+
+
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Vertex Roofing Calculator", layout="wide")
 
@@ -192,3 +231,12 @@ if st.button("RUN CALCULATIONS", type="primary", use_container_width=True):
     ax.grid(True, alpha=0.3)
     
     st.pyplot(fig)
+
+pdf_file = generate_pdf(u_value, condensation_result, layers_df)
+
+st.download_button(
+    label="📄 Export Report as PDF",
+    data=pdf_file,
+    file_name="vertex_uvalue_report.pdf",
+    mime="application/pdf"
+)
